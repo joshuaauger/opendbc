@@ -41,11 +41,6 @@ class CarInterface(CarInterfaceBase):
       lka_steering = 0x50 in fingerprint[cam_can] or 0x110 in fingerprint[cam_can]
       CAN = CanBus(None, fingerprint, lka_steering)
 
-      ret.alphaLongitudinalAvailable = not (ret.flags & HyundaiFlags.CANFD_NO_RADAR_DISABLE)
-      if lka_steering and Ecu.adas not in [fw.ecu for fw in car_fw]:
-        # this needs to be figured out for cars without an ADAS ECU
-        ret.alphaLongitudinalAvailable = False
-
       ret.enableBsm = 0x1ba in fingerprint[CAN.ECAN]
 
       # Check if the car is hybrid. Only HEV/PHEV cars have 0xFA on E-CAN.
@@ -63,6 +58,19 @@ class CarInterface(CarInterfaceBase):
           ret.flags |= HyundaiFlags.CANFD_ALT_BUTTONS.value
         if not ret.flags & HyundaiFlags.CANFD_RADAR_SCC:
           ret.flags |= HyundaiFlags.CANFD_CAMERA_SCC.value
+
+      # CANFD_NO_RADAR_DISABLE only matters when an ECU disable is actually sent at init.
+      # Camera-SCC cars (HDA I) never disable any ECU — the panda relay-blocks the camera's
+      # SCC frames and openpilot injects its own, so the flag is irrelevant for this path.
+      # HDA II and radar-SCC cars do require an ECU disable and must remain blocked.
+      if ret.flags & HyundaiFlags.CANFD_CAMERA_SCC:
+        ret.alphaLongitudinalAvailable = True
+      else:
+        ret.alphaLongitudinalAvailable = not (ret.flags & HyundaiFlags.CANFD_NO_RADAR_DISABLE)
+
+      # HDA II additionally requires an ADAS ECU present in firmware
+      if lka_steering and Ecu.adas not in [fw.ecu for fw in car_fw]:
+        ret.alphaLongitudinalAvailable = False
 
       # Some LKA steering cars have alternative messages for gear checks
       # ICE cars do not have 0x130; GEARS message on 0x40 or 0x70 instead
