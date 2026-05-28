@@ -213,7 +213,7 @@ class LongitudinalController:
       self.jerk_lower = dynamic_desired_lower_jerk
 
     # Stop release jerk cap: soften the initial surge when pulling away from rest
-    if self.car_config.stop_release_jerk_bp is not None:
+    if self.car_config.stop_release_jerk_bp is not None and self.car_config.stop_release_jerk_v is not None:
       restart_from_stop = (
         self.long_control_state_last in (LongCtrlState.stopping, LongCtrlState.starting) and
         long_control_state in (LongCtrlState.starting, LongCtrlState.pid) and
@@ -266,7 +266,7 @@ class LongitudinalController:
     else:
       self.desired_accel = float(np.clip(self.accel_cmd, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))
       # Launch hold: enforce a minimum positive accel through the launch phase
-      if self._launch_active and self.car_config.launch_hold_speed_bp is not None:
+      if self._launch_active and self.car_config.launch_hold_speed_bp is not None and self.car_config.launch_hold_speed_v is not None:
         launch_min = float(np.interp(velocity, self.car_config.launch_hold_speed_bp,
                                      self.car_config.launch_hold_speed_v))
         self.desired_accel = max(self.desired_accel, launch_min)

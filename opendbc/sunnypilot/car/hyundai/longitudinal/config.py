@@ -6,7 +6,6 @@ See the LICENSE.md file in the root directory for more details.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 from opendbc.car.hyundai.values import CAR
 
@@ -24,11 +23,11 @@ class CarTuningConfig:
 
   # Optional per-car stop/launch refinements. When None the generic path is used.
   # Minimum accel hold during launch from standstill (speed -> min accel lookup).
-  launch_hold_speed_bp: Optional[list[float]] = None
-  launch_hold_speed_v: Optional[list[float]] = None
+  launch_hold_speed_bp: list[float] | None = None
+  launch_hold_speed_v: list[float] | None = None
   # Jerk upper cap when restarting from a stop.
-  stop_release_jerk_bp: Optional[list[float]] = None
-  stop_release_jerk_v: Optional[list[float]] = None
+  stop_release_jerk_bp: list[float] | None = None
+  stop_release_jerk_v: list[float] | None = None
 
 
 # Default configurations for different car types

@@ -285,8 +285,8 @@ class CarState(CarStateBase, EsccCarStateBase, MadsCarState, CarStateExt):
     ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_lamp(50, cp.vl["BLINKERS"][left_blinker_sig],
                                                                       cp.vl["BLINKERS"][right_blinker_sig])
     if self.CP.enableBsm:
-      ret.leftBlindspot = bool(cp.vl["ADAS_CMD_50_50ms"]["BCW_LtIndSta"])
-      ret.rightBlindspot = bool(cp.vl["ADAS_CMD_50_50ms"]["BCW_RtIndSta"])
+      ret.leftBlindspot = bool(cp.vl["BLINDSPOTS_REAR_CORNERS"]["BCW_LtIndSta"])
+      ret.rightBlindspot = bool(cp.vl["BLINDSPOTS_REAR_CORNERS"]["BCW_RtIndSta"])
 
     # Augment BSM with front-corner radar data when available
     self.left_blindspot_from_radar = False
@@ -295,7 +295,7 @@ class CarState(CarStateBase, EsccCarStateBase, MadsCarState, CarStateExt):
       self.left_blindspot_from_radar, self.right_blindspot_from_radar = decode_canfd_front_corner_radar_bsm(
         cp.vl["BLINDSPOTS_FRONT_CORNER_2"]["SIDE_DETECT_STATE"])
       if self.CP.enableBsm:
-        ret.leftBlindspot  = ret.leftBlindspot  or self.left_blindspot_from_radar
+        ret.leftBlindspot  = ret.leftBlindspot or self.left_blindspot_from_radar
         ret.rightBlindspot = ret.rightBlindspot or self.right_blindspot_from_radar
 
     # Snapshot raw blindspot messages for cluster SCC replay

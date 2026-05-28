@@ -1,3 +1,15 @@
 [tools]
 python = "3.11"
 "aqua:astral-sh/uv" = "latest"
+
+[env]
+PYTHONPATH = "{{cwd}}"
+_.python.venv = { path = ".venv", create = false }
+
+[tasks.setup]
+description = "Install all Python dependencies (creates .venv)"
+run = "./setup.sh"
+
+[tasks.test]
+description = "Run all tests (lint + pytest + safety)"
+run = "./test.sh"

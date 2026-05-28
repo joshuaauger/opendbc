@@ -427,10 +427,10 @@ def create_blindspot_status_messages(packer, CAN, rear_values, front_corner_valu
   """Repack the last-known BLINDSPOTS_REAR_CORNERS / BLINDSPOTS_FRONT_CORNER_1 payloads
   with fresh rolling counter/checksum and updated indicator states.  Called when the
   originating ECU has stopped transmitting (stale timestamp)."""
-  rear  = {k: v for k, v in rear_values.items()         if k not in ("CHECKSUM", "COUNTER")}
+  rear  = {k: v for k, v in rear_values.items() if k not in ("CHECKSUM", "COUNTER")}
   front = {k: v for k, v in front_corner_values.items() if k not in ("CHECKSUM", "COUNTER")}
 
-  left_state  = 2 if left_blindspot  and left_blinker  else (1 if left_blindspot  else 0)
+  left_state  = 2 if left_blindspot and left_blinker else (1 if left_blindspot else 0)
   right_state = 2 if right_blindspot and right_blinker else (1 if right_blindspot else 0)
 
   rear["BCW_Sta"]           = int(left_blindspot or right_blindspot)
