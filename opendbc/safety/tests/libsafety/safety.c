@@ -11,6 +11,7 @@ uint32_t microsecond_timer_get(void) {
 
 #include "opendbc/safety/can.h"
 #include "opendbc/safety/safety.h"
+#include "opendbc/safety/ignition.h"
 
 void safety_tick_current_safety_config() {
   safety_tick(&current_safety_config);
@@ -53,8 +54,16 @@ void set_relay_malfunction(bool c){
   relay_malfunction = c;
 }
 
+void set_ignition_can(bool c){
+  ignition_can = c;
+}
+
 bool get_controls_allowed(void){
   return controls_allowed;
+}
+
+bool get_ignition_can(void){
+  return ignition_can;
 }
 
 int get_alternative_experience(void){
@@ -308,4 +317,6 @@ void init_tests(void){
   mads_button_press = MADS_BUTTON_UNAVAILABLE;
   heartbeat_engaged_mads = false;
   heartbeat_engaged_mads_mismatches = 0U;
+  ignition_can = false;
+  ignition_can_cnt = 0U;
 }

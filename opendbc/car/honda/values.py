@@ -117,11 +117,16 @@ class HondaCarDocs(CarDocs):
       self.support_type: SupportType = SupportType.COMMUNITY
       self.support_link: str = "community"
 
+    if CP.alphaLongitudinalAvailable:
+      self.footnotes.append(Footnote.HONDA_ALPHALONG)
 
 class Footnote(Enum):
   CIVIC_DIESEL = CarFootnote(
     "2019 Honda Civic 1.6L Diesel Sedan does not have ALC below 12mph.",
     Column.FSR_STEERING)
+  HONDA_ALPHALONG = CarFootnote(
+    "Enabling longitudinal control (alpha) will disable all CMBS functionality, including AEB and FCW.",
+    Column.LONGITUDINAL)
 
 
 @dataclass
