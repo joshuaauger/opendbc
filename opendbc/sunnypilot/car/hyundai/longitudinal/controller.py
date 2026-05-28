@@ -56,6 +56,11 @@ class LongitudinalController:
     self.comfort_band_lower = 0.0
     self.stopping = False
 
+    # Per-car stop/launch state (used by optional CarTuningConfig fields)
+    self._launch_active: bool = False
+    self._velocity: float = 0.0
+    self._long_control_state: LongCtrlState = LongCtrlState.off
+
   @property
   def enabled(self) -> bool:
     return bool(self.CP_SP.flags & (HyundaiFlagsSP.LONG_TUNING_DYNAMIC | HyundaiFlagsSP.LONG_TUNING_PREDICTIVE))
@@ -161,13 +166,11 @@ class LongitudinalController:
     return dynamic_lower_jerk
 
   def calculate_jerk(self, CC: structs.CarControl, CS: CarStateBase, long_control_state: LongCtrlState) -> None:
-    """Calculate appropriate jerk limits for smooth acceleration/deceleration.
+    """Calculate appropriate jerk limits for smooth acceleration/deceleration."""
 
-    Args:
-        CC: Car control signals
-        CS: Car state
-        long_control_state: Current longitudinal control state
-    """
+    # Cache velocity for use in calculate_accel (which doesn't receive CS)
+    self._velocity = CS.out.vEgo
+    self._long_control_state = long_control_state
 
     # If custom tuning is disabled, use upstream fixed values
     if not self.enabled:
@@ -202,15 +205,24 @@ class LongitudinalController:
       desired_jerk_lower = 5.0
       dynamic_desired_lower_jerk = 5.0
 
-    # Apply jerk limits based on tuning approach
     self.jerk_upper = desired_jerk_upper
 
-    # Predictive tuning uses calculated desired jerk directly
-    # Dynamic tuning applies a ramped approach for smoother transitions
     if self.CP_SP.flags & HyundaiFlagsSP.LONG_TUNING_PREDICTIVE:
       self.jerk_lower = desired_jerk_lower
     else:
       self.jerk_lower = dynamic_desired_lower_jerk
+
+    # Stop release jerk cap: soften the initial surge when pulling away from rest
+    if self.car_config.stop_release_jerk_bp is not None:
+      restart_from_stop = (
+        self.long_control_state_last in (LongCtrlState.stopping, LongCtrlState.starting) and
+        long_control_state in (LongCtrlState.starting, LongCtrlState.pid) and
+        self.accel_cmd > 0.0 and velocity < 0.5
+      )
+      if restart_from_stop:
+        release_cap = float(np.interp(velocity, self.car_config.stop_release_jerk_bp,
+                                      self.car_config.stop_release_jerk_v))
+        self.jerk_upper = min(self.jerk_upper, release_cap)
 
     # Disable jerk when longitudinal control is inactive
     if not CC.longActive:
@@ -218,11 +230,7 @@ class LongitudinalController:
       self.jerk_lower = 0.0
 
   def calculate_accel(self, CC: structs.CarControl) -> None:
-    """Calculate commanded acceleration using jerk-limited approach.
-
-    Args:
-        CC: Car control signals
-    """
+    """Calculate commanded acceleration using jerk-limited approach."""
 
     # Skip custom processing if tuning is disabled or radar unavailable
     if not self.enabled:
@@ -235,17 +243,36 @@ class LongitudinalController:
       self.desired_accel = 0.0
       self.actual_accel = 0.0
       self.accel_last = 0.0
+      self._launch_active = False
       return
 
-    # Force zero acceleration during stopping
+    velocity = self._velocity
+    long_control_state = self._long_control_state
+
+    # --- Launch hold state tracking ---
+    if self.car_config.launch_hold_speed_bp is not None:
+      max_launch_v = self.car_config.launch_hold_speed_bp[-1]
+      if self.accel_cmd <= 0.0 or velocity >= max_launch_v:
+        self._launch_active = False
+      elif (long_control_state == LongCtrlState.starting or
+            (self._launch_active and velocity < max_launch_v) or
+            (self.long_control_state_last == LongCtrlState.starting and
+             long_control_state == LongCtrlState.pid and velocity < max_launch_v)):
+        self._launch_active = True
+
+    # --- Desired accel ---
     if self.stopping:
       self.desired_accel = 0.0
     else:
       self.desired_accel = float(np.clip(self.accel_cmd, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))
+      # Launch hold: enforce a minimum positive accel through the launch phase
+      if self._launch_active and self.car_config.launch_hold_speed_bp is not None:
+        launch_min = float(np.interp(velocity, self.car_config.launch_hold_speed_bp,
+                                     self.car_config.launch_hold_speed_v))
+        self.desired_accel = max(self.desired_accel, launch_min)
 
     # Apply jerk-limited integration to get smooth acceleration
     self.actual_accel = jerk_limited_integrator(self.desired_accel, self.accel_last, self.jerk_upper, self.jerk_lower)
-
     self.accel_last = self.actual_accel
 
   def calculate_comfort_band(self, CC: structs.CarControl, CS: CarStateBase) -> None:

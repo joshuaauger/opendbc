@@ -28,6 +28,7 @@ MAX_ANGLE_CONSECUTIVE_FRAMES = 2
 # and triggers the "SCC Conditions Not Met" alert. Delaying the button send lets factory SCC disengage
 # naturally on brake press. We send ~100 ms later if it fails to do so, or if we want to cancel for another reason.
 CANCEL_BUTTON_DELAY_FRAMES = 10
+CANFD_BLINDSPOT_STATUS_STALE_NS = 200_000_000  # 200 ms
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
@@ -73,6 +74,10 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     self.car_fingerprint = CP.carFingerprint
     self.last_button_frame = 0
     self.cancel_counter = 0
+
+    # Cluster SCC replay state (CANFD_CLUSTER_SCC_REPLAY)
+    self._cluster_lane_change_side: str | None = None
+    self._cluster_lane_change_frames: int = 0
 
   def update(self, CC, CC_SP, CS, now_nanos):
     EsccCarController.update(self, CS)
@@ -127,7 +132,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     # *** CAN/CAN FD specific ***
     if self.CP.flags & HyundaiFlags.CANFD:
       can_sends.extend(self.create_canfd_msgs(apply_steer_req, apply_torque, set_speed_in_units, accel,
-                                              stopping, hud_control, CS, CC))
+                                              stopping, hud_control, CS, CC, now_nanos))
     else:
       # Hold torque with induced temporary fault when cutting the actuation bit
       # FIXME: we don't use this with CAN FD?
@@ -195,7 +200,7 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
 
     return can_sends
 
-  def create_canfd_msgs(self, apply_steer_req, apply_torque, set_speed_in_units, accel, stopping, hud_control, CS, CC):
+  def create_canfd_msgs(self, apply_steer_req, apply_torque, set_speed_in_units, accel, stopping, hud_control, CS, CC, now_nanos):
     can_sends = []
 
     lka_steering = self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG
@@ -217,11 +222,54 @@ class CarController(CarControllerBase, EsccCarController, LeadDataCarController,
     if lka_steering and self.CP.flags & HyundaiFlags.CANFD_ENABLE_BLINKERS:
       can_sends.extend(hyundaicanfd.create_spas_messages(self.packer, self.CAN, CC.leftBlinker, CC.rightBlinker))
 
+    # Cluster lane-change animation replay (CANFD_CLUSTER_SCC_REPLAY)
+    # Tracks a per-direction frame counter; resets on direction change or when long inactive.
+    if self.CP.flags & HyundaiFlags.CANFD_CLUSTER_SCC_REPLAY:
+      lane_change_side: str | None = None
+      if CC.leftBlinker and not CC.rightBlinker:
+        lane_change_side = "left"
+      elif CC.rightBlinker and not CC.leftBlinker:
+        lane_change_side = "right"
+
+      if lane_change_side != self._cluster_lane_change_side:
+        self._cluster_lane_change_side = lane_change_side
+        self._cluster_lane_change_frames = 0
+
+      if lane_change_side is None or not self.CP.openpilotLongitudinalControl:
+        self._cluster_lane_change_frames = 0
+      else:
+        can_sends.extend(hyundaicanfd.create_ioniq_6_cluster_lane_change_messages(
+          self.CAN, self._cluster_lane_change_frames, lane_change_side))
+        self._cluster_lane_change_frames += 1
+    else:
+      lane_change_side = None
+
     if self.CP.openpilotLongitudinalControl:
       if lka_steering:
         can_sends.extend(hyundaicanfd.create_adrv_messages(self.packer, self.CAN, self.frame))
       else:
         can_sends.extend(hyundaicanfd.create_fca_warning_light(self.packer, self.CAN, self.frame))
+
+      # Cluster BSM replay (CANFD_CLUSTER_SCC_REPLAY)
+      if self.CP.flags & HyundaiFlags.CANFD_CLUSTER_SCC_REPLAY:
+        # When not lane-changing: drive the cluster blindspot indicator ourselves
+        if lane_change_side is None:
+          can_sends.extend(hyundaicanfd.create_ioniq_6_cluster_blindspot_messages(
+            self.CAN, self.frame,
+            CS.left_blindspot_from_radar, CS.right_blindspot_from_radar,
+            CC.leftBlinker, CC.rightBlinker))
+        # Relay stale BLINDSPOTS_REAR_CORNERS / BLINDSPOTS_FRONT_CORNER_1 when the
+        # originating ECU has gone quiet (stale check prevents conflicts while it's active)
+        if self.frame % 5 == 0:
+          rear_stale  = now_nanos - CS.blindspots_rear_corners_ts   > CANFD_BLINDSPOT_STATUS_STALE_NS
+          front_stale = now_nanos - CS.blindspots_front_corner_1_ts > CANFD_BLINDSPOT_STATUS_STALE_NS
+          if (CS.blindspots_rear_corners_ts > 0 and CS.blindspots_front_corner_1_ts > 0
+              and rear_stale and front_stale):
+            can_sends.extend(hyundaicanfd.create_blindspot_status_messages(
+              self.packer, self.CAN,
+              CS.blindspots_rear_corners, CS.blindspots_front_corner_1,
+              CS.left_blindspot_from_radar, CS.right_blindspot_from_radar,
+              CC.leftBlinker, CC.rightBlinker))
       if self.frame % 2 == 0:
         can_sends.append(hyundaicanfd.create_acc_control(self.packer, self.CAN, CC.enabled, self.accel_last, accel, stopping, CC.cruiseControl.override,
                                                          set_speed_in_units, hud_control, self.lead_data, CS.main_cruise_enabled, self.tuning))

@@ -20,6 +20,16 @@ PREV_BUTTON_SAMPLES = 8
 CLUSTER_SAMPLE_RATE = 20  # frames
 STANDSTILL_THRESHOLD = 12 * 0.03125
 
+# Ioniq 6 front-corner radar blindspot bitmasks (BLINDSPOTS_FRONT_CORNER_2.SIDE_DETECT_STATE)
+_IONIQ_6_BSM_LEFT_MASK  = 0x10
+_IONIQ_6_BSM_RIGHT_MASK = 0x08
+
+
+def decode_canfd_front_corner_radar_bsm(state: int) -> tuple[bool, bool]:
+  """Return (left_blindspot, right_blindspot) from BLINDSPOTS_FRONT_CORNER_2.SIDE_DETECT_STATE."""
+  state_int = int(state)
+  return bool(state_int & _IONIQ_6_BSM_LEFT_MASK), bool(state_int & _IONIQ_6_BSM_RIGHT_MASK)
+
 # Cancel button can sometimes be ACC pause/resume button, main button can also enable on some cars
 ENABLE_BUTTONS = (Buttons.RES_ACCEL, Buttons.SET_DECEL, Buttons.CANCEL)
 BUTTONS_DICT = {Buttons.RES_ACCEL: ButtonType.accelCruise, Buttons.SET_DECEL: ButtonType.decelCruise,
@@ -70,6 +80,16 @@ class CarState(CarStateBase, EsccCarStateBase, MadsCarState, CarStateExt):
     self.cluster_speed_counter = CLUSTER_SAMPLE_RATE
 
     self.params = CarControllerParams(CP)
+
+    # Radar-augmented BSM state (CANFD_FRONT_CORNER_RADAR_BSM)
+    self.left_blindspot_from_radar: bool = False
+    self.right_blindspot_from_radar: bool = False
+
+    # Raw blindspot message snapshots + timestamps for cluster SCC replay (CANFD_CLUSTER_SCC_REPLAY)
+    self.blindspots_rear_corners: dict = {}
+    self.blindspots_front_corner_1: dict = {}
+    self.blindspots_rear_corners_ts: int = 0
+    self.blindspots_front_corner_1_ts: int = 0
 
   def recent_button_interaction(self) -> bool:
     # On some newer model years, the CANCEL button acts as a pause/resume button based on the PCM state
@@ -267,6 +287,23 @@ class CarState(CarStateBase, EsccCarStateBase, MadsCarState, CarStateExt):
     if self.CP.enableBsm:
       ret.leftBlindspot = bool(cp.vl["ADAS_CMD_50_50ms"]["BCW_LtIndSta"])
       ret.rightBlindspot = bool(cp.vl["ADAS_CMD_50_50ms"]["BCW_RtIndSta"])
+
+    # Augment BSM with front-corner radar data when available
+    self.left_blindspot_from_radar = False
+    self.right_blindspot_from_radar = False
+    if self.CP.flags & HyundaiFlags.CANFD_FRONT_CORNER_RADAR_BSM:
+      self.left_blindspot_from_radar, self.right_blindspot_from_radar = decode_canfd_front_corner_radar_bsm(
+        cp.vl["BLINDSPOTS_FRONT_CORNER_2"]["SIDE_DETECT_STATE"])
+      if self.CP.enableBsm:
+        ret.leftBlindspot  = ret.leftBlindspot  or self.left_blindspot_from_radar
+        ret.rightBlindspot = ret.rightBlindspot or self.right_blindspot_from_radar
+
+    # Snapshot raw blindspot messages for cluster SCC replay
+    if self.CP.flags & HyundaiFlags.CANFD_CLUSTER_SCC_REPLAY:
+      self.blindspots_rear_corners      = copy.copy(cp.vl["BLINDSPOTS_REAR_CORNERS"])
+      self.blindspots_front_corner_1    = copy.copy(cp.vl["BLINDSPOTS_FRONT_CORNER_1"])
+      self.blindspots_rear_corners_ts   = cp.ts_nanos["BLINDSPOTS_REAR_CORNERS"]["CHECKSUM"]
+      self.blindspots_front_corner_1_ts = cp.ts_nanos["BLINDSPOTS_FRONT_CORNER_1"]["CHECKSUM"]
 
     # cruise state
     # CAN FD cars enable on main button press, set available if no TCS faults preventing engagement

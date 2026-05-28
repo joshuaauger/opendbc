@@ -203,6 +203,11 @@ class CarInterface(CarInterfaceBase):
       stock_cp.pcmCruise = True
       ret.safetyParam |= HyundaiSafetyFlagsSP.NON_SCC
 
+    # Enable dynamic longitudinal tuning for Ioniq 6 when OP long is active.
+    # The CarTuningConfig for HYUNDAI_IONIQ_6 carries the car-specific jerk parameters.
+    if stock_cp.carFingerprint == CAR.HYUNDAI_IONIQ_6 and stock_cp.openpilotLongitudinalControl:
+      ret.flags |= HyundaiFlagsSP.LONG_TUNING_DYNAMIC.value
+
     # untested non-SCC platforms, need user validations
     if stock_cp.carFingerprint in (CAR.HYUNDAI_BAYON_1ST_GEN_NON_SCC, CAR.KIA_FORTE_2021_NON_SCC,
                                    CAR.KIA_SELTOS_2023_NON_SCC, CAR.GENESIS_G70_2021_NON_SCC):

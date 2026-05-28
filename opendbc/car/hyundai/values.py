@@ -149,6 +149,16 @@ class HyundaiFlags(IntFlag):
 
   ALT_LIMITS_2 = 2 ** 26
 
+  # Ioniq 6 / any future car whose front-corner radar publishes additional
+  # blindspot detections in BLINDSPOTS_FRONT_CORNER_2.SIDE_DETECT_STATE.
+  # enableBsm is OR-ed with this radar source.
+  CANFD_FRONT_CORNER_RADAR_BSM = 2 ** 27
+
+  # Cars that need their cluster BSM indicators and lane-change animations
+  # replayed on ECAN when OP longitudinal is active (ADAS ECU disabled or
+  # no longer sending those frames).
+  CANFD_CLUSTER_SCC_REPLAY = 2 ** 28
+
 
 @dataclass
 class HyundaiCarDocs(CarDocs):
@@ -389,7 +399,8 @@ class CAR(Platforms):
         HyundaiCarDocs("Hyundai Ioniq 6 (with HDA II) 2023-24", "Highway Driving Assist II", car_parts=CarParts.common([CarHarness.hyundai_p])),
     ],
     HYUNDAI_IONIQ_5.specs,
-    flags=HyundaiFlags.EV | HyundaiFlags.CANFD_NO_RADAR_DISABLE,
+    flags=HyundaiFlags.EV | HyundaiFlags.CANFD_NO_RADAR_DISABLE |
+          HyundaiFlags.CANFD_FRONT_CORNER_RADAR_BSM | HyundaiFlags.CANFD_CLUSTER_SCC_REPLAY,
   )
   HYUNDAI_TUCSON_4TH_GEN = HyundaiCanFDPlatformConfig(
     [
